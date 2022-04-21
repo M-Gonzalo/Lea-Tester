@@ -39,7 +39,7 @@ It will perform the following:
         - difference between time taken to compress and decompress the file for version 0.4 and version 0.5
         The object structure is as follows:
             {
-                "file": "filename.jpg",
+                "filename": "filename.jpg",
                 "originalSize": 12345,
                 "originalsha256": "1234567890",
                 "ppmSize": 123456,
@@ -53,6 +53,7 @@ It will perform the following:
                 "cRatioPPM0.4": 123456,
                 "cRatioPPM0.5": 123456,
                 "cRatioDiff": 123456 or -123456,
+                "cRatioPPMDiff": 123456 or -123456,
                 "cTime0.4": 123456,
                 "cTime0.5": 123456,
                 "cSpeed0.4": 123456,
@@ -74,147 +75,296 @@ To run the test, you need to have the following programs installed:
  */
 
 // Import the required modules
-const { getAllFiles } = require("./utils.js"); // Traverse the folder and returns all the files recursively
-const { exec } = require("child_process");
-const { promisify } = require("util");
-const fs = require("fs");
-const path = require("path");
-const gm = require("gm"); // GraphicsMagick
+const { getAllFiles } = require("./utils.js") // Traverse the folder and returns all the files recursively
+const fs = require("fs")
+const { execSync } = require("child_process")
+const path = require("path")
+const progressBar = require('progress-barjs')
 const sha256File = require('sha256-file'); // https://www.npmjs.com/package/sha256-file
-const asyncFilter = require('alegrify-async-filter'); // https://www.npmjs.com/package/alegrify-async-filter
+const gm = require("gm") // GraphicsMagick
 
 
 // Checks
-const isWindows = process.platform === "win32";
-const gmBin = isWindows ? "gm.exe" : "gm";
-const haveGm = exec(`${gmBin} version`, (err, stdout, stderr) => {
+const isWindows = process.platform === "win32"
+const gmBin = isWindows ? "gm.exe" : "gm"
+const haveGm = execSync(`${gmBin} version`, (err) => {
     if (err) {
-        console.log(`Error: ${gmBin} is not in my path.`);
-        return false;
+        console.log(`Error: ${gmBin} is not in my path.`)
+        return false
     }
-    return true;
-});
-const haveWine = isWindows ? false : exec(`wine --version`, (err, stdout, stderr) => {
+    return true
+})
+const haveWine = isWindows ? false : execSync(`wine --version`, (err) => {
     if (err) {
-        console.log(`Error: wine is not in my path.`);
-        return false;
+        console.log(`Error: wine is not in my path.`)
+        return false
     }
-    return true;
-});
+    return true
+})
 
 
 // Lea binaries
-const lea0_4_comp = path.join(__dirname, "bin", "v0.4", "clea.exe");
-const lea0_5_comp = path.join(__dirname, "bin", "v0.5b", "clea.exe");
-const lea0_4_decomp = path.join(__dirname, "bin", "v0.4", "dlea.exe");
-const lea0_5_decomp = path.join(__dirname, "bin", "v0.5b", "dlea.exe");
+const lea0_4_comp = path.join(__dirname, "bin", "v0.4", "clea.exe")
+const lea0_5_comp = path.join(__dirname, "bin", "v0.5b", "clea.exe")
+const lea0_4_decomp = path.join(__dirname, "bin", "v0.4", "dlea.exe")
+const lea0_5_decomp = path.join(__dirname, "bin", "v0.5b", "dlea.exe")
 
-const dir = process.argv[2] || "./"; // The folder to scan
-const imgFolder = path.join(dir, "img"); // The images tested will be copied here
-const tempFolder = path.join(__dirname, "tmp"); // The folder to store the temporary files (PPM and compressed files for both versions)
-const reportFile = path.join(__dirname, "results.json");
+const dir = process.argv[2] || "./" // The folder to scan
+const imgFolder = path.join(__dirname, "img") // The images tested will be copied here
+const tempFolder = path.join(__dirname, "tmp") // The folder to store the temporary files (PPM and compressed files for both versions)
+const reportFile = path.join(__dirname, "results.json")
 
 
 // Probe the system and find out if I have my dependencies
 if (!haveGm) {
-    console.log("Error: I need GraphicsMaick to run. You can find it here: https://www.graphicsmagick.org/");
-    process.exit(1);
+    console.log("Error: I need GraphicsMagick to run. You can find it here: https://www.graphicsmagick.org/")
+    process.exit(2)
 }
 if (!isWindows && !haveWine) {
-    console.log("Error: I need wine to run on *nix. You can find it here: https://www.winehq.org/");
-    process.exit(1);
+    console.log("Error: I need WINE to run on *nix. You can find it here: https://www.winehq.org/")
+    process.exit(2)
 }
 
 
 const processEverything = async () => {
-    const allFiles = getAllFiles(dir);
-    return allFiles.forEach(file => {
-        // Filter out non-image files
-        gm(file).identify((err, data) => {
-            if (!err) {
-                // console.log(`${file} format: ${data.format}.`);
-                // Convert non-PPM images
-                if (data.format !== "PPM") {
-                    // Copy the image to the img folder
-                    fs.copyFile(file, `${imgFolder}/${path.basename(file)}`, (err) => {
-                        if (err) console.log(`Error: ${err.message}`);
-                        else console.log(`${file} copied to ${imgFolder}/${path.basename(file)}`);
-                    });
-                    // console.log(`${file} is not a PPM file. Converting now...`);
-                    gm(file).write(`${tempFolder}/ppm/${path.basename(file)}.ppm`, (err) => {
-                        if (err) console.log(`Error: ${err.message}`);
-                        else console.log(`${file} converted to PPM.`);
-                    });
-                }
-                else {
-                    // Copy the image to the img folder
-                    fs.copyFile(file, `${imgFolder}/${path.basename(file)}`, (err) => {
-                        if (err) console.log(`Error: ${err.message}`);
-                        else console.log(`${file} copied to ${imgFolder}/${path.basename(file)}`);
-                    });
-                    fs.copyFile(file, `${tempFolder}/${path.basename(file)}.ppm`, (err) => {
-                        if (err) console.log(`Error: ${err.message}`);
-                        else console.log(`${file} copied to ${tempFolder}/ppm/${path.basename(file)}.ppm`);
-                    });
-                }
-                // Everything is ready, let's start the tests:
-                const ppmFile = `"${tempFolder}/ppm/${path.basename(file)}.ppm"`;
-                const restoredV4File = `"${tempFolder}/restored4/${path.basename(file)}.restored"`;
-                const restoredV5File = `"${tempFolder}/restored5/${path.basename(file)}.restored"`;
-                const lea4file = `"${tempFolder}/lea4/${path.basename(file)}.lea4"`;
-                const lea5file = `"${tempFolder}/lea5/${path.basename(file)}.lea5"`;
-                // Compress the image with lea0.4
-                exec(`${!isWindows ? "wine" : ""} ${lea0_4_comp} ${ppmFile} ${lea4file}`, (err, stdout, stderr) => {
-                    if (err) console.log(`Error: ${err.message}`);
-                    else console.log(`${file} compressed with lea0.4.`);
-                });
-                // Restore the image with lea0.4
-                exec(`${!isWindows ? "wine" : ""} ${lea0_4_decomp} ${lea4file} ${restoredV4File}`, (err, stdout, stderr) => {
-                    if (err) console.log(`Error: ${err.message}`);
-                    else console.log(`${file} restored with lea0.4.`);
-                });
-                // Compress the image with lea0.5
-                exec(`${!isWindows ? "wine" : ""} ${lea0_5_comp} ${ppmFile} ${lea5file}`, (err, stdout, stderr) => {
-                    if (err) console.log(`Error: ${err.message}`);
-                    else console.log(`${file} compressed with lea0.5.`);
-                });
-                // Restore the image with lea0.5
-                exec(`${!isWindows ? "wine" : ""} ${lea0_5_decomp} ${lea5file} ${restoredV5File}`, (err, stdout, stderr) => {
-                    if (err) console.log(`Error: ${err.message}`);
-                    else console.log(`${file} restored with lea0.5.`);
-                });
+
+    const report = []
+    const allFiles = getAllFiles(dir)
+
+    // console.log(`Found ${allFiles.length} images.`);
+    // console.table(allFiles[0]);
+
+    // Función auxiliar para ejecutar de manera sincrónica un comando externo
+    // Luego se ejecutará el comando 3 veces para cada archivo
+    // Para cada una se controla el tiempo de ejecución y se guarda el menor valor
+    const runSync = (comand) => {
+        try {
+            const start = Date.now()
+            const result = execSync(comand, { encoding: "utf8" })
+            const end = Date.now()
+            const time = end - start
+            return {
+                time,
+                result
             }
-        });
-    });
+        }
+        catch (err) {
+            console.warn(`Something went wrong while running command ${comand}`)
+            return {
+                time: -1,
+                result: err
+            }
+        }
+    }
+
+
+    // Comprimimos con Lea 0.4
+    const progressBarOptionsC04 = {
+        total: allFiles.length,
+        label: '  Compressing with Lea 0.4 ',
+        show: {
+            overwrite: true,
+            bar: {
+                length: 50,
+                completed: '—',
+                incompleted: '|',
+            },
+        },
+    }
+    const barC04 = progressBar(progressBarOptionsC04)
+    allFiles.forEach(async file => {
+        barC04.tick('')
+        const input = `"${file.ppmFile}"`
+        const outputV4 = path.join(__dirname, "tmp", "lea4", `"${file.filename}.ppm.lea4"`)
+
+        // Ejecutamos el comando para comprimir 3 veces
+        const times = []
+        for (let i = 0; i < 3; i++) {
+            const { time, result } = runSync(
+                `${!isWindows ? "WINEDEBUG=-all wine" : ""} ${lea0_4_comp} ${input} ${outputV4} ${!isWindows ? "2>/dev/null" : ""}`
+            )
+            times.push(time)
+        }
+
+        // Calculamos el tiempo mínimo y lo guardamos en el reporte
+        const minTime = Math.min(...times)
+        const ppmSize = file.ppmSize
+        const originalSize = file.originalSize
+        // Get the size of uotputV4 using the command `du -b ${outputV4} | cut -f1` if we are on Linux, or `wc -c ${outputV4}` if we are on Windows
+        const compressedSize = isWindows ?
+            execSync(`wc -c ${outputV4}`, { encoding: "utf8" }).split(" ")[0] :
+            // We need to trim the last two characters from the following output and convert it to number
+            parseInt(execSync(`du -b ${outputV4} | cut -f1`, { encoding: "utf8" }).slice(0, -1))
+
+        report.push({
+            ...file,
+            "cTime0.4": minTime,
+            "cSpeed0.4": ppmSize / (minTime / 1000), // Speed in bytes per second
+            "cSize0.4": compressedSize,
+            "cRatio0.4": compressedSize / originalSize * 100,
+            "cRatioPPM0.4": compressedSize / ppmSize * 100,
+        })
+    })
+
+    // Comprimimos con Lea 0.5
+    const progressBarOptionsC05 = {
+        total: allFiles.length,
+        label: '  Compressing with Lea 0.5 ',
+        show: {
+            overwrite: true,
+            bar: {
+                length: 50,
+                completed: '—',
+                incompleted: '|',
+            },
+        },
+    }
+    const barC05 = progressBar(progressBarOptionsC05)
+    allFiles.forEach(async file => {
+        barC05.tick('')
+        const input = `"${file.ppmFile}"`
+        const outputV5 = path.join(__dirname, "tmp", "lea5", `"${file.filename}.ppm.lea5"`)
+
+        // Ejecutamos el comando para comprimir 3 veces
+        const times = []
+        for (let i = 0; i < 3; i++) {
+            const { time, result } = runSync(
+                `${!isWindows ? "WINEDEBUG=-all wine" : ""} ${lea0_5_comp} ${input} ${outputV5} ${!isWindows ? "2>/dev/null" : ""}`
+            )
+            times.push(time)
+        }
+
+        // Calculamos el tiempo mínimo y lo guardamos en el reporte
+        const minTime = Math.min(...times)
+        const ppmSize = file.ppmSize
+        const originalSize = file.originalSize
+        // Get the size of uotputV5 using the command `du -b ${outputV5} | cut -f1` if we are on Linux, or `wc -c ${outputV5}` if we are on Windows
+        const compressedSize = isWindows ?
+            execSync(`wc -c ${outputV5}`, { encoding: "utf8" }).split(" ")[0] :
+            // We need to trim the last two characters from the following output and convert it to number
+            parseInt(execSync(`du -b ${outputV5} | cut -f1`, { encoding: "utf8" }).slice(0, -1))
+
+        // We need to find on the report the file with the same name as the one we are processing so we can add the new data for V5
+        const index = report.findIndex(reportFile => file.originalsha256 === reportFile.originalsha256)
+        const cRatio = compressedSize / originalSize * 100
+        report[index] = {
+            ...report[index],
+            "cTime0.5": minTime,
+            "cSpeed0.5": ppmSize / (minTime / 1000), // Speed in bytes per second
+            "cSize0.5": compressedSize,
+            "cRatio0.5": cRatio,
+            "cRatioPPM0.5": compressedSize / ppmSize * 100,
+            "cTimeDiff": minTime - report[index]["cTime0.4"], // positive if Lea 0.4 is faster
+            "cRatioDiff": cRatio - report[index]["cRatio0.4"], // positive if Lea 0.4 is better
+        }
+    })
+
+    // Restauramos los archivos originales con Lea 0.4
+    const progressBarOptionsR04 = {
+        total: allFiles.length,
+        label: 'Decompressing with Lea 0.4 ',
+        show: {
+            overwrite: true,
+            bar: {
+                length: 50,
+                completed: '—',
+                incompleted: '|',
+            },
+        },
+    }
+    const barR04 = progressBar(progressBarOptionsR04)
+
+    allFiles.forEach(async file => {
+        barR04.tick('')
+        const input = path.join(__dirname, "tmp", "lea4", `"${file.filename}.ppm.lea4"`)
+        const output = path.join(__dirname, "tmp", "restored4", `"${file.filename}.ppm.restored"`)
+
+        // Ejecutamos el comando para descomprimir 3 veces
+        const times = []
+        for (let i = 0; i < 3; i++) {
+            const { time, result } = runSync(
+                `${!isWindows ? "WINEDEBUG=-all wine" : ""} ${lea0_4_decomp} ${input} ${output} ${!isWindows ? "2>/dev/null" : ""}`
+            )
+            times.push(time)
+        }
+
+        // Calculamos el tiempo mínimo y lo guardamos en el reporte
+        const minTime = Math.min(...times)
+        // Get the size of uotput using the command `du -b ${output} | cut -f1` if we are on Linux, or `wc -c ${output}` if we are on Windows
+        const decompressedSize = isWindows ?
+            execSync(`wc -c ${output}`, { encoding: "utf8" }).split(" ")[0] :
+            // We need to trim the last two characters from the following output and convert it to number
+            parseInt(execSync(`du -b ${output} | cut -f1`, { encoding: "utf8" }).slice(0, -1))
+
+        // We need to find on the report the file with the same name as the one we are processing so we can add the new data for V4
+        const index = report.findIndex(reportFile => file.originalsha256 === reportFile.originalsha256)
+        report[index] = {
+            ...report[index],
+            "dTime0.4": minTime,
+            "dSpeed0.4": decompressedSize / (minTime / 1000), // Speed in bytes per second
+            // Compression time plus decompression time
+            "roundTrip0.4": report[index]["cTime0.4"] + minTime,
+            // "isIdentical0.4": report[index].ppmsha256 === sha256File(output) ? "✓" : "✗",
+        }
+    })
+
+    // Restauramos los archivos originales con Lea 0.5
+    const progressBarOptionsR05 = {
+        total: allFiles.length,
+        label: 'Decompressing with Lea 0.5 ',
+        show: {
+            overwrite: true,
+            bar: {
+                length: 50,
+                completed: '—',
+                incompleted: '|',
+            },
+        },
+    }
+    const barR05 = progressBar(progressBarOptionsR05)
+
+    allFiles.forEach(async file => {
+        barR05.tick('')
+        const input = path.join(__dirname, "tmp", "lea5", `"${file.filename}.ppm.lea5"`)
+        const output = path.join(__dirname, "tmp", "restored5", `"${file.filename}.ppm.restored"`)
+
+        // Ejecutamos el comando para descomprimir 3 veces
+        const times = []
+        for (let i = 0; i < 3; i++) {
+            const { time, result } = runSync(
+                `${!isWindows ? "WINEDEBUG=-all wine" : ""} ${lea0_5_decomp} ${input} ${output} ${!isWindows ? "2>/dev/null" : ""}`
+            )
+            times.push(time)
+        }
+
+        // Calculamos el tiempo mínimo y lo guardamos en el reporte
+        const minTime = Math.min(...times)
+        // Get the size of uotput using the command `du -b ${output} | cut -f1` if we are on Linux, or `wc -c ${output}` if we are on Windows
+        const decompressedSize = isWindows ?
+            execSync(`wc -c ${output}`, { encoding: "utf8" }).split(" ")[0] :
+            // We need to trim the last two characters from the following output and convert it to number
+            parseInt(execSync(`du -b ${output} | cut -f1`, { encoding: "utf8" }).slice(0, -1))
+
+        // We need to find on the report the file with the same name as the one we are processing so we can add the new data for V5
+        const index = report.findIndex(reportFile => file.originalsha256 === reportFile.originalsha256)
+        const roundTrip = report[index]["cTime0.5"] + minTime
+        report[index] = {
+            ...report[index],
+            "dTime0.5": minTime,
+            "dSpeed0.5": decompressedSize / (minTime / 1000), // Speed in bytes per second
+            // "isIdentical0.5": file.ppmsha256 === sha256File(output) ? "✓" : "✗",
+            "dTimeDiff": minTime - report[index]["dTime0.4"], // positive if Lea 0.4 is faster
+            "roundTrip0.5": roundTrip,
+            "roundTripDiff": roundTrip - report[index]["roundTrip0.4"], // positive if Lea 0.4 is faster
+        }
+        delete report[index]["ppmFile"]
+    })
+
+    // Save the report to a json file
+    fs.writeFileSync(path.join(__dirname, "report.jsonc"), JSON.stringify(report, null, 2))
+
+    // report.forEach(file => console.table(file))
+    // console.table(report[0])
+
 }
-processEverything();
-
-
-// {
-//     "file": isWindows ? file.replace(/\\/g, "/") : file,
-//     "originalSize": fs.statSync(file).size,
-//     "originalsha256": sha256File(file),
-//     "ppmSize": 0,
-//     "ppmsha256": "",
-//     "cSize0.4": 0,
-//     "cSize0.5": 0,
-//     "isIdentical": "",
-//     "cSizeDiff": 0,
-//     "cRatio0.4": 0,
-//     "cRatio0.5": 0,
-//     "cRatioPPM0.4": 0,
-//     "cRatioPPM0.5": 0,
-//     "cRatioDiff": 0,
-//     "cRatioPPMDiff": 0,
-//     "cTime0.4": 0,
-//     "cTime0.5": 0,
-//     "cSpeed0.4": 0,
-//     "cSpeed0.5": 0,
-//     "cTimeDiff": 0,
-//     "dTime0.4": 0,
-//     "dTime0.5": 0,
-//     "dTimeDiff": 0,
-//     "roundTripTime0.4": 0,
-//     "roundTripTime0.5": 0,
-//     "roundTripTimeDiff": 0
-// }
+processEverything()
