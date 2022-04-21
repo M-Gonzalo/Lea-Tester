@@ -75,60 +75,60 @@ To run the test, you need to have the following programs installed:
  */
 
 // Import the required modules
-const { getAllFiles } = require("./utils.js"); // Traverse the folder and returns all the files recursively
-const fs = require("fs");
-const { execSync } = require("child_process");
-const path = require("path");
-const progressBar = require('progress-barjs');
-const gm = require("gm"); // GraphicsMagick
+const { getAllFiles } = require("./utils.js") // Traverse the folder and returns all the files recursively
+const fs = require("fs")
+const { execSync } = require("child_process")
+const path = require("path")
+const progressBar = require('progress-barjs')
+const gm = require("gm") // GraphicsMagick
 
 
 // Checks
-const isWindows = process.platform === "win32";
-const gmBin = isWindows ? "gm.exe" : "gm";
+const isWindows = process.platform === "win32"
+const gmBin = isWindows ? "gm.exe" : "gm"
 const haveGm = execSync(`${gmBin} version`, (err) => {
     if (err) {
-        console.log(`Error: ${gmBin} is not in my path.`);
-        return false;
+        console.log(`Error: ${gmBin} is not in my path.`)
+        return false
     }
-    return true;
-});
+    return true
+})
 const haveWine = isWindows ? false : execSync(`wine --version`, (err) => {
     if (err) {
-        console.log(`Error: wine is not in my path.`);
-        return false;
+        console.log(`Error: wine is not in my path.`)
+        return false
     }
-    return true;
-});
+    return true
+})
 
 
 // Lea binaries
-const lea0_4_comp = path.join(__dirname, "bin", "v0.4", "clea.exe");
-const lea0_5_comp = path.join(__dirname, "bin", "v0.5b", "clea.exe");
-const lea0_4_decomp = path.join(__dirname, "bin", "v0.4", "dlea.exe");
-const lea0_5_decomp = path.join(__dirname, "bin", "v0.5b", "dlea.exe");
+const lea0_4_comp = path.join(__dirname, "bin", "v0.4", "clea.exe")
+const lea0_5_comp = path.join(__dirname, "bin", "v0.5b", "clea.exe")
+const lea0_4_decomp = path.join(__dirname, "bin", "v0.4", "dlea.exe")
+const lea0_5_decomp = path.join(__dirname, "bin", "v0.5b", "dlea.exe")
 
-const dir = process.argv[2] || "./"; // The folder to scan
-const imgFolder = path.join(__dirname, "img"); // The images tested will be copied here
-const tempFolder = path.join(__dirname, "tmp"); // The folder to store the temporary files (PPM and compressed files for both versions)
-const reportFile = path.join(__dirname, "results.json");
+const dir = process.argv[2] || "./" // The folder to scan
+const imgFolder = path.join(__dirname, "img") // The images tested will be copied here
+const tempFolder = path.join(__dirname, "tmp") // The folder to store the temporary files (PPM and compressed files for both versions)
+const reportFile = path.join(__dirname, "results.json")
 
 
 // Probe the system and find out if I have my dependencies
 if (!haveGm) {
-    console.log("Error: I need GraphicsMagick to run. You can find it here: https://www.graphicsmagick.org/");
-    process.exit(2);
+    console.log("Error: I need GraphicsMagick to run. You can find it here: https://www.graphicsmagick.org/")
+    process.exit(2)
 }
 if (!isWindows && !haveWine) {
-    console.log("Error: I need WINE to run on *nix. You can find it here: https://www.winehq.org/");
-    process.exit(2);
+    console.log("Error: I need WINE to run on *nix. You can find it here: https://www.winehq.org/")
+    process.exit(2)
 }
 
 
 const processEverything = async () => {
 
-    const report = [];
-    const allFiles = getAllFiles(dir);
+    const report = []
+    const allFiles = getAllFiles(dir)
 
     // console.log(`Found ${allFiles.length} images.`);
     // console.table(allFiles[0]);
@@ -138,21 +138,21 @@ const processEverything = async () => {
     // Para cada una se controla el tiempo de ejecución y se guarda el menor valor
     const runSync = (comand) => {
         try {
-            const start = Date.now();
-            const result = execSync(comand, { encoding: "utf8" });
-            const end = Date.now();
-            const time = end - start;
+            const start = Date.now()
+            const result = execSync(comand, { encoding: "utf8" })
+            const end = Date.now()
+            const time = end - start
             return {
                 time,
                 result
-            };
+            }
         }
         catch (err) {
-            console.warn(`Something went wrong while running command ${comand}`);
+            console.warn(`Something went wrong while running command ${comand}`)
             return {
                 time: -1,
                 result: err
-            };
+            }
         }
     }
 
@@ -171,47 +171,51 @@ const processEverything = async () => {
         },
     }
     const bar = progressBar(progressBarOptions)
-    allFiles.forEach((file, index) => {
-        const input = `"${file.ppmFile}"`;
-        const outputV4 = path.join(__dirname, "tmp", "lea4", `"${file.filename}.ppm.lea4"`);
+    allFiles.forEach(async file => {
+        bar.tick('')
+        const input = `"${file.ppmFile}"`
+        const outputV4 = path.join(__dirname, "tmp", "lea4", `"${file.filename}.ppm.lea4"`)
 
         // Ejecutamos el comando para comprimir 3 veces
-        const times = [];
+        const times = []
         for (let i = 0; i < 3; i++) {
-            const { time, result } = runSync(`${!isWindows ? "WINEDEBUG=-all wine" : ""} ${lea0_4_comp} ${input} ${outputV4} ${!isWindows ? "2>/dev/null" : ""}`);
-            times.push(time);
+            const { time, result } = runSync(
+                `${!isWindows ? "WINEDEBUG=-all wine" : ""} ${lea0_4_comp} ${input} ${outputV4} ${!isWindows ? "2>/dev/null" : ""}`
+            )
+            times.push(time)
         }
 
         // Calculamos el tiempo mínimo y lo guardamos en el reporte
-        const minTime = Math.min(...times);
-        const ppmSize = file.ppmSize;
-        const compressedSize = ""
-        fs.stat(outputV4, (err, stats) => {
-            if (err) null
-            else compressedSize = stats.size;
-        });
+        const minTime = Math.min(...times)
+        const ppmSize = file.ppmSize
+        const originalSize = file.originalSize
+        // Get the size of uotputV4 using the command `du -b ${outputV4} | cut -f1` if we are on Linux, or `wc -c ${outputV4}` if we are on Windows
+        const compressedSize = isWindows ?
+            execSync(`wc -c ${outputV4}`, { encoding: "utf8" }).split(" ")[0] :
+            // We need to trim the last two characters from the following output and convert it to number
+            parseInt(execSync(`du -b ${outputV4} | cut -f1`, { encoding: "utf8" }).slice(0, -1))
+
         report.push({
             ...file,
             "cTime0.4": minTime,
-            "cSpeed0.4": file.size / minTime,
+            "cSpeed0.4": ppmSize / (minTime / 1000), // Speed in bytes per second
             "cSize0.4": compressedSize,
-            "cRatio0.4": compressedSize / file.size,
+            "cRatio0.4": compressedSize / originalSize,
             "cRatioPPM0.4": compressedSize / ppmSize,
-        });
-        bar.tick('')
-    });
-    bar.reset();
+        })
+    })
+    bar.reset()
 
 
     // Para cada fichero en allFiles, comprimimos y descomprimimos con cada versión de Lea
     allFiles.forEach((file, index) => {
-        const outputV5 = path.join(__dirname, "tmp", "lea5", `${file.filename}.ppm.lea5`);
-        const restored4 = path.join(__dirname, "tmp", "restored4", `${file.filename}.ppm`);
-        const restored5 = path.join(__dirname, "tmp", "restored5", `${file.filename}.ppm`);
-    });
+        const outputV5 = path.join(__dirname, "tmp", "lea5", `${file.filename}.ppm.lea5`)
+        const restored4 = path.join(__dirname, "tmp", "restored4", `${file.filename}.ppm`)
+        const restored5 = path.join(__dirname, "tmp", "restored5", `${file.filename}.ppm`)
+    })
 
 
-    console.table(report[0]);
+    report.forEach(file => console.table(file))
 
 }
-processEverything();
+processEverything()
