@@ -1,0 +1,7 @@
+{
+  "dependencies": {
+    "gm": "^1.23.1",
+    "progress-barjs": "^2.2.1",
+    "sha256-file": "^1.0.0"
+  }
+}

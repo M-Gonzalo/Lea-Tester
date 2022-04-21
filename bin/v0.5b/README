@@ -1,0 +1,6 @@
+LEA v0.5 beta - lossless image compressor (c) 2022 Marcio Pais
+
+To compress a PPM image: clea.exe input.ppm output.lea
+To decompress a LEA image: dlea.exe input.lea output.ppm
+
+Image width/height must be <= 2^29
